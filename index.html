@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="StudRail Studio"/>
@@ -10,34 +10,60 @@
   <title>StudRail Studio</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:#F0F2F8}
-    #loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;background:#0F1629}
-    .logo{width:64px;height:64px;background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;color:#fff;font-family:Inter,sans-serif}
-    #loading p{color:#818CF8;font-size:14px;font-weight:600;font-family:Inter,sans-serif}
-    #root{display:none}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#F0F2F8}
+    #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;background:#0F1629;z-index:9999}
+    .sr-logo{width:64px;height:64px;background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:22px;color:#fff}
+    #load-msg{color:#818CF8;font-size:14px;font-weight:600}
+    .spinner{width:32px;height:32px;border:3px solid #2D3748;border-top-color:#6366F1;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
   </style>
 </head>
 <body>
-  <div id="loading">
-    <div class="logo">SR</div>
-    <p>Loading StudRail Studio...</p>
-  </div>
-  <div id="root"></div>
+<div id="loading">
+  <div class="sr-logo">SR</div>
+  <div class="spinner"></div>
+  <div id="load-msg">Loading StudRail Studio...</div>
+</div>
+<div id="root"></div>
 
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script>
-    // Pre-configure Babel
-    window.addEventListener('load', function() {
-      try {
-        Babel.registerPreset('custom', {
-          presets: [Babel.availablePresets['react'], Babel.availablePresets['env']]
-        });
-      } catch(e) {}
-    });
-  </script>
-  <script type="text/babel" data-type="module" data-presets="react,env">
+<script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.2/babel.min.js"></script>
+
+<script>
+// Show compile progress
+document.getElementById('load-msg').textContent = 'Compiling app (first load only)...';
+
+// Compile and run the JSX
+setTimeout(function() {
+  try {
+    var code = document.getElementById('app-source').textContent;
+    var compiled = Babel.transform(code, {
+      presets: ['react'],
+      filename: 'app.jsx'
+    }).code;
+    
+    document.getElementById('load-msg').textContent = 'Starting...';
+    
+    // Execute compiled code
+    // Execute compiled code and expose App globally
+    eval(compiled);
+    
+    // Mount React app  
+    var root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(window.App || App));
+    
+    // Hide loading
+    document.getElementById('loading').style.display = 'none';
+    
+  } catch(err) {
+    document.getElementById('load-msg').textContent = 'Error: ' + err.message;
+    console.error(err);
+  }
+}, 100);
+</script>
+
+<script id="app-source" type="text/plain">
 const { useState, useReducer, useRef, useCallback } = React;
 
 const EMAIL = {
@@ -1118,11 +1144,6 @@ function ProgModal({project:p,onClose,onUpdate,onNotif}) {
   );
 }
 
-const container = document.getElementById('root');
-const root = ReactDOM.createRoot(container);
-root.render(React.createElement(App));
-document.getElementById('loading').style.display = 'none';
-document.getElementById('root').style.display = 'block';
-  </script>
+</script>
 </body>
 </html>
