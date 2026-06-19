@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="StudRail Studio"/>
+  <meta name="theme-color" content="#0F1629"/>
+  <title>StudRail Studio</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:#F0F2F8}
+    #loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;background:#0F1629}
+    .logo{width:64px;height:64px;background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;color:#fff;font-family:Inter,sans-serif}
+    #loading p{color:#818CF8;font-size:14px;font-weight:600;font-family:Inter,sans-serif}
+    #root{display:none}
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="logo">SR</div>
+    <p>Loading StudRail Studio...</p>
+  </div>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    // Pre-configure Babel
+    window.addEventListener('load', function() {
+      try {
+        Babel.registerPreset('custom', {
+          presets: [Babel.availablePresets['react'], Babel.availablePresets['env']]
+        });
+      } catch(e) {}
+    });
+  </script>
+  <script type="text/babel" data-type="module" data-presets="react,env">
+const { useState, useReducer, useRef, useCallback } = React;
+
+const EMAIL = {
+  client:       "msadesign.engineering@gmail.com",
+  drafters:     "msadesign.team2025@gmail.com",
+  fromClient:   "studrails@reinforcingsupply.com",
+  cc1:          "reinfsupply@gmail.com",
+  cc2:          "richard@reinforcingsupply.com",
+};
+
+const BILLING = { newPerFloor: 150, revPerHour: 50 };
+const PAY     = { d1: 5.00, d2: 5.50, d3: 5.00 };
+const HOURS   = { safe: 3, target: 2, newDrafter: 4.5, day: 8 };
+
+const DRAFTERS_INIT = [
+  { id:"d1", name:"Joe",    av:"JO", email:"jm.avila0730@gmail.com",   wa:"+639708992311",  status:"available", exp:"experienced", schedule:"full",    note:"Full time" },
+  { id:"d2", name:"Junell", av:"JU", email:"jmechilina.msa@gmail.com", wa:"+639684460697",  status:"available", exp:"experienced", schedule:"full",    note:"Full time" },
+  { id:"d3", name:"Jay",    av:"JY", email:"jbsanidad40@gmail.com",    wa:"+639519203109",  status:"available", exp:"experienced", schedule:"limited", note:"Mon-Fri 7AM-1PM USA only / Full weekends" },
+];
+
+const PROJECTS_INIT = [
+  {
+    id:"2026031", name:"180 E 125th Street", client:"KMI",
+    address:"180 E 125th St, Manhattan, NY",
+    type:"new", status:"in_progress", assignedTo:["d2"],
+    receivedDate:"2026-06-18", dueDate:"2026-06-22", deadline:"Sunday morning USA Time",
+    submittedDate:null, estimatedSubmit:"2026-06-21",
+    totalDrawings:4, progressPct:50, studRailFloors:4,
+    billingType:"new", invoiceAmount:600, invoiceNo:"", invoiceDate:"", paymentTerms:"Net 30",
+    invoiced:false, scheduleType:"safe",
+    drafterHours:[],
+    drawings:[
+      { dwg:"S-101.00",         floor:"1st Floor",   columns:"89,91,96,98",                                      status:"complete"    },
+      { dwg:"S-103.00-S-112.00",floor:"Typ 3-36",    columns:"Col 50",                                           status:"in_progress" },
+      { dwg:"S-113.00",         floor:"37th Floor",  columns:"8,9A,10A,15,18A,23A,24,30,31,36,37,50",           status:"pending"     },
+      { dwg:"S-114.00",         floor:"38th Floor",  columns:"23A,24,29,31,33,36",                              status:"pending"     },
+    ],
+    notes:"Stud rail schedule/details: Sheet S-308.00. KMI take-off attached.",
+    driveFolder:"https://drive.google.com/drive/search?q=2026031",
+  },
+];
+
+// --- helpers ---
+const pct = (a,b) => b===0?0:Math.round(a/b*100);
+const fmtDate = s => s ? new Date(s+("T12:00:00")).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}) : "---";
+const daysUntil = s => { if(!s) return null; return Math.ceil((new Date(s)-new Date())/(86400000)); };
+const genId = () => new Date().getFullYear()+""+Math.floor(Math.random()*900+100);
+const addWorkDays = (from, n) => { const d=new Date(from||Date.now()); let a=0; while(a<n){d.setDate(d.getDate()+1);if(d.getDay()!==0&&d.getDay()!==6)a++;} return d.toISOString().slice(0,10); };
+const estimateDays = (n,type,exp) => { let h=type==="target"?HOURS.target:type==="newDrafter"?HOURS.newDrafter:HOURS.safe; if(exp==="new")h=Math.max(h,HOURS.newDrafter); return Math.ceil(n*h/HOURS.day); };
+const calcInv = p => p.billingType==="revision" ? (p.drafterHours||[]).filter(h=>h.billable).reduce((s,h)=>s+Number(h.hours||0)*BILLING.revPerHour,0) : (p.studRailFloors||p.totalDrawings||0)*BILLING.newPerFloor;
+const calcPay = (p,drafters) => (p.drafterHours||[]).map(h=>({...h,rate:PAY[h.drafterId]||5,pay:Number(h.hours||0)*(PAY[h.drafterId]||5),dname:(drafters.find(d=>d.id===h.drafterId)||{}).name||"?"}));
+
+const SM = {
+  pending:    { bg:"#FEF3C7", tx:"#92400E", lb:"PENDING"     },
+  in_progress:{ bg:"#DBEAFE", tx:"#1E40AF", lb:"IN PROGRESS" },
+  complete:   { bg:"#D1FAE5", tx:"#065F46", lb:"COMPLETE"    },
+  review:     { bg:"#EDE9FE", tx:"#4C1D95", lb:"IN REVIEW"   },
+  submitted:  { bg:"#FCE7F3", tx:"#831843", lb:"SUBMITTED"   },
+};
+const AM = {
+  available:{ bg:"#D1FAE5", tx:"#065F46", dot:"#10B981", lb:"Available"   },
+  busy:     { bg:"#FEF3C7", tx:"#92400E", dot:"#F59E0B", lb:"Busy"        },
+  vacation: { bg:"#FEE2E2", tx:"#7F1D1D", dot:"#EF4444", lb:"On Vacation" },
+};
+
+// --- icons ---
+const P = {
+  home:   "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
+  folder: "M3 7a2 2 0 012-2h3.586a1 1 0 01.707.293L10.414 6.5H19a2 2 0 012 2V18a2 2 0 01-2 2H5a2 2 0 01-2-2V7z",
+  team:   "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z",
+  mail:   "M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+  inv:    "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0121 9.414V19a2 2 0 01-2 2z",
+  inbox:  "M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4",
+  plus:   "M12 4v16m8-8H4",
+  close:  "M6 18L18 6M6 6l12 12",
+  copy:   "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z",
+  bell:   "M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 00-9.33-4.993M15 17H9m6 0v1a3 3 0 11-6 0v-1m6 0H9",
+  clock:  "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
+  warn:   "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+  check:  "M5 13l4 4L19 7",
+  spark:  "M13 10V3L4 14h7v7l9-11h-7z",
+  track:  "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
+  wa:     "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z M12 2C6.48 2 2 6.48 2 12c0 2.124.558 4.121 1.532 5.853L.054 23.25l5.553-1.453A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0z",
+  pdf:    "M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z",
+  send:   "M12 19l9 2-9-18-9 18 9-2zm0 0v-8",
+  eye:    "M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z",
+};
+const Ic = ({n,sz=16,col="currentColor"}) => (
+  <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d={P[n]}/>
+  </svg>
+);
+const Chip = ({label,bg,tx}) => <span style={{background:bg,color:tx,fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>{label}</span>;
+const BtnSm = ({label,bg,tx,onClick}) => <button onClick={onClick} style={{background:bg,color:tx,border:"none",borderRadius:7,padding:"6px 11px",cursor:"pointer",fontWeight:700,fontSize:11}}>{label}</button>;
+
+// --- email builders ---
+const mkClientEmail = (p,type) => {
+  const subj = p.id+": "+p.name+" - Stud Rail Shop Drawing";
+  if(type==="ack") return { from:EMAIL.client, to:EMAIL.fromClient, cc:EMAIL.cc1+", "+EMAIL.cc2, subject:subj, body:"Hi,\n\nThank you for the project. We have received "+p.id+" - "+p.name+" and will proceed with the stud rail shop drawings.\n\nExpected submission: "+fmtDate(p.estimatedSubmit)+"\n\nThank you,\nMayra Silva\n"+EMAIL.client };
+  if(type==="update") return { from:EMAIL.client, to:EMAIL.fromClient, cc:EMAIL.cc1+", "+EMAIL.cc2, subject:subj+" - Status Update", body:"Hi,\n\nStatus update on Project "+p.id+" - "+p.name+".\n\nProgress: "+(p.progressPct||0)+"% complete\nEst. submission: "+fmtDate(p.estimatedSubmit)+"\n\nOn track. Let us know if you have questions.\n\nThank you,\nMayra Silva\n"+EMAIL.client };
+  if(type==="delivery") return { from:EMAIL.client, to:EMAIL.fromClient, cc:EMAIL.cc1+", "+EMAIL.cc2, subject:subj+" - SUBMITTED", body:"Hi,\n\nPlease find attached the completed stud rail shop drawings for "+p.id+" - "+p.name+".\n\nScope:\n"+p.drawings.map((d,i)=>"  "+(i+1)+". "+d.floor+" (Sheet "+d.dwg+")").join("\n")+"\n\nTotal: "+p.totalDrawings+" sheet"+(p.totalDrawings!==1?"s":"")+"\n\nPlease review and let us know if revisions are needed.\n\nThank you,\nMayra Silva\n"+EMAIL.client };
+  return { from:EMAIL.client, to:EMAIL.fromClient, cc:EMAIL.cc1+", "+EMAIL.cc2, subject:subj, body:"" };
+};
+const mkDrafterEmail = (p,dr,type) => {
+  if(type==="assign") return { from:EMAIL.drafters, to:dr.email, cc:"", subject:p.id+": "+p.name+" - Stud Rail Shop Drawing (Client: "+p.client+")", body:"Hi "+dr.name+",\n\nYou are assigned to Project "+p.id+" - "+p.name+(p.address?" - "+p.address:"")+" - Client: "+p.client+".\nContract drawings and "+p.client+"'s stud rail take-off are attached.\n\nScope: "+p.totalDrawings+" stud rail shop drawing"+(p.totalDrawings!==1?"s":"")+" total:\n"+p.drawings.map((d,i)=>"  "+(i+1)+". "+d.floor+" (Sheet "+d.dwg+")"+(d.columns?" - Columns "+d.columns:"")).join("\n")+"\n\nDeadline: "+(p.deadline||p.dueDate)+(p.notes?"\n\nNotes: "+p.notes:"")+"\n\nPlease confirm receipt by replying to this email.\n\nThank you,\nMayra\n"+EMAIL.drafters };
+  return { from:EMAIL.drafters, to:dr.email, cc:"", subject:"Re: "+p.id+": "+p.name+" - Status Update", body:"Hi "+dr.name+",\n\nPlease reply with a quick status on "+p.id+" - "+p.name+":\n1. % complete?\n2. Which drawings are done?\n3. Any issues?\n4. ETA?\n\nThank you,\nMayra\n"+EMAIL.drafters };
+};
+const mkInvEmail = (p,amt) => ({ from:EMAIL.client, to:EMAIL.fromClient, cc:EMAIL.cc1+", "+EMAIL.cc2, subject:"Invoice "+(p.invoiceNo||p.id)+" - "+p.name+" - Stud Rail Shop Drawings", body:"Hi,\n\nPlease find attached the invoice for Project "+p.id+" - "+p.name+".\n\nAmount Due: $"+amt.toFixed(2)+"\nPayment Terms: "+(p.paymentTerms||"Net 30")+"\n\nMake all checks payable to MAYRA D. SILVA ALBORNOZ.\n\nThank you,\nMayra Silva\n"+EMAIL.client });
+
+const mkWA = (p,drafters,scenario) => {
+  const drs = (p.assignedTo||[]).map(id=>drafters.find(d=>d.id===id)).filter(Boolean);
+  const names = drs.map(d=>d.name).join(" & ");
+  const dwgList = p.drawings.map((d,i)=>(i+1)+". "+d.floor+" ("+d.dwg+")"+(d.columns?" - Col "+d.columns:"")).join("\n");
+  if(scenario==="assign") return "Hi "+names+"!\n\n*NEW PROJECT ASSIGNED*\n*Job No:* "+p.id+"\n*Project:* "+p.name+"\n*Client:* "+p.client+"\n\n*Scope - "+p.totalDrawings+" drawing"+(p.totalDrawings!==1?"s":"")+"*\n"+dwgList+"\n\n*Deadline:* "+(p.deadline||p.dueDate)+(p.notes?"\n\nNotes: "+p.notes:"")+"\n\nPlease confirm receipt and send % updates as you progress.\n\nThank you!";
+  if(scenario==="status") return "Hi "+names+"!\n\nQuick status check on:\n*"+p.id+" - "+p.name+"*\n\nPlease reply:\n% complete:\nDrawings done:\nAny issues?\n\nThank you!";
+  return "Hi "+names+"!\n\n*URGENT REMINDER*\n*"+p.id+" - "+p.name+"*\nDeadline: *"+(p.deadline||p.dueDate)+"*\n\nPlease prioritize and confirm status ASAP.\n\nThank you!";
+};
+
+// --- Claude AI ---
+async function callAI(content, system) {
+  const body = { model:"claude-sonnet-4-6", max_tokens:1000, messages:[{role:"user",content}] };
+  if(system) body.system = system;
+  const r = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const data = await r.json();
+  return (data.content||[]).map(c=>c.text||"").join("");
+}
+
+// --- PDF generator ---
+function downloadInvoicePDF(p, drafters) {
+  const inv = calcInv(p);
+  const invNo = p.invoiceNo || ("INV-"+p.id);
+  const invDate = p.invoiceDate || new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
+
+  const gen = () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:"pt", format:"letter" });
+
+    // MSA logo box
+    doc.setFillColor(26,26,46); doc.rect(36,20,138,72,"F");
+    doc.setTextColor(255,255,255);
+    let lx=46; const ly=62;
+    doc.setFont("helvetica","bold"); doc.setFontSize(21); doc.text("m",lx,ly); lx+=19;
+    doc.setFont("helvetica","normal"); doc.setFontSize(21); doc.text("|",lx,ly); lx+=8;
+    doc.setFont("helvetica","bold"); doc.setFontSize(21); doc.text("s",lx,ly); lx+=15;
+    doc.setFont("helvetica","normal"); doc.setFontSize(21); doc.text("|",lx,ly); lx+=8;
+    doc.setFont("helvetica","bold"); doc.setFontSize(21); doc.text("a",lx,ly);
+    doc.setFillColor(233,30,140); doc.rect(36,86,138,5,"F");
+    doc.setTextColor(233,30,140); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+    doc.text("DESIGN & CONSULTING",44,100);
+
+    // Gray banner
+    doc.setFillColor(156,163,175); doc.rect(180,20,396,72,"F");
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(30);
+    doc.text("INVOICE",570,62,{align:"right"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+    doc.text("WE BELIEVE IN SERVICE",570,78,{align:"right"});
+
+    // From address
+    doc.setTextColor(0,0,0); doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+    ["6031 75th Avenue Unit 1","Glendale, NY 11385","(646) 209-9023","msadesign.engineering@gmail.com"].forEach((l,i)=>doc.text(l,36,115+i*13));
+
+    // Meta
+    [["INVOICE NO.",invNo],["DATE",invDate],["CUSTOMER ID",(p.client||"RSUPPLY").toUpperCase().replace(/[^A-Z0-9]/g,"")]].forEach(([lb,vl],i)=>{
+      doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.setTextColor(107,114,128);
+      doc.text(lb,390,115+i*15,{align:"right"});
+      doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.setTextColor(0,0,0);
+      doc.text(String(vl),400,115+i*15);
+    });
+
+    // TO
+    doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,0,0);
+    doc.text("TO",36,200);
+    ["Reinforcing Supply","350 Morgan Avenue","Brooklyn, NY 11211"].forEach((l,i)=>{
+      doc.setFont(i===0?"helvetica":"helvetica",i===0?"bold":"normal");
+      doc.setTextColor(i===0?0:107, i===0?0:114, i===0?0:128);
+      doc.text(l,88,200+i*13);
+    });
+
+    // Job table
+    const jy=235;
+    doc.setFillColor(26,26,46); doc.rect(36,jy,540,18,"F");
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+    doc.text("SALESPERSON",40,jy+12); doc.text("JOB",152,jy+12);
+    doc.text("PAYMENT TERMS",370,jy+12); doc.text("DUE DATE",485,jy+12);
+    doc.setFillColor(255,255,255); doc.rect(36,jy+18,540,18,"F");
+    doc.setTextColor(0,0,0); doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+    doc.text("Raptor_"+p.id,40,jy+30);
+    doc.text((p.name||"").slice(0,35),152,jy+30);
+    doc.text(p.paymentTerms||"Net 30",370,jy+30);
+    doc.text(p.dueDate||"",485,jy+30);
+    doc.setDrawColor(209,213,219); doc.setLineWidth(0.4);
+    doc.rect(36,jy,540,36,"S");
+
+    // Line items
+    const ly2=jy+46;
+    doc.setFillColor(26,26,46); doc.rect(36,ly2,540,18,"F");
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+    doc.text("QUANTITY/HOURS",40,ly2+12); doc.text("DESCRIPTION",155,ly2+12);
+    doc.text("HOURLY PRICE",435,ly2+12,{align:"right"}); doc.text("LINE TOTAL",570,ly2+12,{align:"right"});
+
+    const items = p.billingType==="revision"
+      ? (p.drafterHours||[]).filter(h=>h.billable).map(h=>({qty:Number(h.hours||0),desc:h.description||p.name+" Rev Shop Drawings-EOR",rate:BILLING.revPerHour,total:Number(h.hours||0)*BILLING.revPerHour}))
+      : [{qty:p.studRailFloors||p.totalDrawings||0,desc:p.name+" - New Stud Rail Shop Drawings\n"+(p.studRailFloors||p.totalDrawings||0)+" stud rail floors @ $"+BILLING.newPerFloor+"/floor",rate:BILLING.newPerFloor,total:inv}];
+
+    let ry = ly2+18;
+    items.forEach((item,idx)=>{
+      const bg = idx%2===0?[255,255,255]:[243,244,246];
+      doc.setFillColor(...bg); doc.rect(36,ry,540,38,"F");
+      doc.setTextColor(0,0,0); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+      doc.text(String(item.qty),90,ry+15,{align:"center"});
+      const dlines = doc.splitTextToSize(item.desc,240);
+      doc.text(dlines,155,ry+13);
+      doc.text("$"+item.rate.toFixed(2),435,ry+15,{align:"right"});
+      doc.setFont("helvetica","bold");
+      doc.text("$ "+item.total.toFixed(2),570,ry+15,{align:"right"});
+      doc.setDrawColor(209,213,219); doc.rect(36,ry,540,38,"S");
+      ry+=38;
+    });
+    for(let i=0;i<9-items.length;i++){
+      const bg=(items.length+i)%2===0?[255,255,255]:[243,244,246];
+      doc.setFillColor(...bg); doc.rect(36,ry,540,22,"F");
+      doc.setDrawColor(209,213,219); doc.rect(36,ry,540,22,"S");
+      ry+=22;
+    }
+
+    // Totals
+    const ty=ry+10;
+    doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(107,114,128);
+    doc.text("SUBTOTAL",435,ty,{align:"right"});
+    doc.setTextColor(0,0,0); doc.setFont("helvetica","bold");
+    doc.text("$ "+inv.toFixed(2),570,ty,{align:"right"});
+    doc.setFont("helvetica","normal"); doc.setTextColor(107,114,128);
+    doc.text("SALES TAX",435,ty+16,{align:"right"});
+    doc.setTextColor(0,0,0); doc.text("0.00",570,ty+16,{align:"right"});
+    doc.setDrawColor(233,30,140); doc.setLineWidth(0.8);
+    doc.line(390,ty+22,576,ty+22);
+    doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,0,0);
+    doc.text("TOTAL",435,ty+36,{align:"right"});
+    doc.text(inv.toFixed(2),570,ty+36,{align:"right"});
+
+    // Footer
+    doc.setFillColor(26,26,46); doc.rect(36,700,540,26,"F");
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+    doc.text("Make all checks payable to MAYRA D. SILVA ALBORNOZ",306,717,{align:"center"});
+    doc.setTextColor(233,30,140); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text("THANK YOU FOR YOUR BUSINESS!",36,742);
+
+    const fname = invNo.replace(/[^A-Z0-9-]/gi,"_")+"_"+p.name.replace(/[^A-Z0-9]/gi,"_").slice(0,20)+".pdf";
+    doc.save(fname);
+  };
+
+  if(window.jspdf) { gen(); }
+  else {
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.onload=gen; document.head.appendChild(s);
+  }
+}
+
+// --- reducer ---
+function reducer(state,action){
+  switch(action.type){
+    case "ADD_PROJECT":    return {...state, projects:[action.p,...state.projects]};
+    case "UPD_PROJECT":    return {...state, projects:state.projects.map(p=>p.id===action.p.id?action.p:p)};
+    case "UPD_DRAFTER":   return {...state, drafters:state.drafters.map(d=>d.id===action.d.id?action.d:d)};
+    case "ADD_NOTIF":     return {...state, notifs:[action.n,...state.notifs].slice(0,30)};
+    case "READ_NOTIFS":   return {...state, notifs:state.notifs.map(n=>({...n,read:true}))};
+    case "CLEAR_NOTIFS":  return {...state, notifs:[]};
+    default: return state;
+  }
+}
+
+// ========== ROOT APP ==========
+function App() {
+  const [state,dispatch] = useReducer(reducer,{projects:PROJECTS_INIT,drafters:DRAFTERS_INIT,notifs:[]});
+  const {projects,drafters,notifs} = state;
+  const [tab,setTab]       = useState("dash");
+  const [selProj,setSP]    = useState(null);
+  const [emailMod,setEM]   = useState(null);
+  const [waMod,setWA]      = useState(null);
+  const [progMod,setPM]    = useState(null);
+  const [inboxOpen,setInb] = useState(false);
+  const [showN,setSN]      = useState(false);
+  const [toast,setToast]   = useState(null);
+
+  const showToast = (msg,ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3000); };
+  const addNotif  = useCallback((msg) => dispatch({type:"ADD_NOTIF",n:{id:Date.now(),msg,read:false,time:new Date().toLocaleTimeString()}}), []);
+  const unread    = notifs.filter(n=>!n.read).length;
+  const updProj   = p => { dispatch({type:"UPD_PROJECT",p}); if(selProj&&selProj.id===p.id) setSP(p); showToast("Saved!"); };
+  const addProj   = p => { dispatch({type:"ADD_PROJECT",p}); addNotif("New project: "+p.id+" - "+p.name); showToast("Project "+p.id+" created!"); setTimeout(()=>setWA({project:p,scenario:"assign"}),700); };
+
+  const TABS = [
+    {id:"dash",  lb:"Dashboard", ic:"home"  },
+    {id:"proj",  lb:"Projects",  ic:"folder"},
+    {id:"track", lb:"Tracker",   ic:"track" },
+    {id:"team",  lb:"Team",      ic:"team"  },
+    {id:"email", lb:"Emails",    ic:"mail"  },
+    {id:"inv",   lb:"Invoices",  ic:"inv"   },
+  ];
+
+  return (
+    <div style={{fontFamily:"Inter,sans-serif",background:"#F0F2F8",minHeight:"100vh",color:"#111"}}>
+      {/* NAV */}
+      <div style={{background:"#0F1629",display:"flex",alignItems:"center",gap:2,padding:"0 14px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,.5)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 0",borderRight:"1px solid #1E2D4E",paddingRight:14,marginRight:8}}>
+          <div style={{width:28,height:28,background:"linear-gradient(135deg,#6366F1,#A855F7)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,color:"#fff"}}>SR</div>
+          <div>
+            <div style={{fontWeight:700,fontSize:10,letterSpacing:1,color:"#E0E7FF"}}>STUDRAIL STUDIO</div>
+            <div style={{fontSize:8,color:"#818CF8"}}>MSA Design Engineering</div>
+          </div>
+        </div>
+        <button onClick={()=>setInb(true)} style={{background:"rgba(16,185,129,.2)",border:"1px solid #10B981",color:"#6EE7B7",padding:"5px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",gap:3,marginRight:4}}>
+          <Ic n="inbox" sz={11} col="#6EE7B7"/> Inbox
+          <span style={{background:"#EF4444",color:"#fff",borderRadius:99,padding:"0 5px",fontSize:8,fontWeight:800}}>NEW</span>
+        </button>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>{setTab(t.id);setSP(null);}} style={{background:tab===t.id?"rgba(99,102,241,.2)":"transparent",border:"none",color:tab===t.id?"#A5B4FC":"#9CA3AF",padding:"9px 9px",borderRadius:5,cursor:"pointer",fontSize:10,fontWeight:600,display:"flex",alignItems:"center",gap:3,borderBottom:tab===t.id?"2px solid #6366F1":"2px solid transparent"}}>
+            <Ic n={t.ic} sz={11}/>{t.lb}
+          </button>
+        ))}
+        <div style={{marginLeft:"auto",position:"relative"}}>
+          <button onClick={()=>{setSN(!showN);if(!showN)dispatch({type:"READ_NOTIFS"});}} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",padding:5,position:"relative"}}>
+            <Ic n="bell" sz={17}/>
+            {unread>0&&<span style={{position:"absolute",top:2,right:2,width:7,height:7,background:"#EF4444",borderRadius:"50%"}}/>}
+          </button>
+          {showN&&(
+            <div style={{position:"absolute",right:0,top:34,width:290,background:"#1A2540",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.5)",zIndex:300}}>
+              <div style={{padding:"8px 12px",borderBottom:"1px solid #2D4070",display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontSize:10,fontWeight:700,color:"#E0E7FF"}}>Notifications</span>
+                <button onClick={()=>dispatch({type:"CLEAR_NOTIFS"})} style={{background:"none",border:"none",color:"#818CF8",fontSize:9,cursor:"pointer"}}>Clear</button>
+              </div>
+              {notifs.length===0&&<div style={{padding:12,fontSize:10,color:"#6B7280",textAlign:"center"}}>No notifications</div>}
+              {notifs.map(n=>(
+                <div key={n.id} style={{padding:"8px 12px",borderBottom:"1px solid #1A2540",background:n.read?"transparent":"rgba(99,102,241,.08)"}}>
+                  <div style={{color:"#E0E7FF",fontSize:10}}>{n.msg}</div>
+                  <div style={{color:"#6B7280",fontSize:8,marginTop:1}}>{n.time}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{background:"#1A2540",borderBottom:"1px solid #2D4070",padding:"4px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:9,color:"#818CF8"}}>iOS: tap Share then Add to Home Screen to install</span>
+        <span style={{fontSize:9,color:"#6B7280"}}>Client: <span style={{color:"#A5B4FC"}}>{EMAIL.client}</span> | Drafters: <span style={{color:"#34D399"}}>{EMAIL.drafters}</span></span>
+      </div>
+
+      {toast&&<div style={{position:"fixed",top:60,right:14,background:toast.ok?"#065F46":"#7F1D1D",color:"#fff",padding:"8px 14px",borderRadius:8,fontSize:12,fontWeight:600,zIndex:999}}>{toast.ok?"OK: ":""}{toast.msg}</div>}
+
+      <div style={{padding:"16px 14px",maxWidth:1160,margin:"0 auto"}}>
+        {tab==="dash"  && <Dash  projects={projects} drafters={drafters} onOpen={p=>{setSP(p);setTab("proj");}} onProg={setPM}/>}
+        {tab==="proj"  && (selProj ? <ProjDetail project={selProj} drafters={drafters} onBack={()=>setSP(null)} onUpdate={updProj} onEmail={setEM} onWA={setWA} onProg={setPM}/> : <ProjList projects={projects} drafters={drafters} onSel={setSP} onNew={()=>setInb(true)}/>)}
+        {tab==="track" && <Tracker projects={projects} onUpdate={updProj} onNotif={addNotif}/>}
+        {tab==="team"  && <TeamPanel drafters={drafters} projects={projects} onUpdate={d=>dispatch({type:"UPD_DRAFTER",d})} onEmail={setEM} onWA={setWA}/>}
+        {tab==="email" && <EmailHub projects={projects} drafters={drafters} onOpen={setEM}/>}
+        {tab==="inv"   && <InvPanel projects={projects} drafters={drafters} onUpdate={updProj} onEmail={setEM} onPDF={downloadInvoicePDF}/>}
+      </div>
+
+      {inboxOpen && <SmartInbox drafters={drafters} onClose={()=>setInb(false)} onCreate={addProj} onToast={showToast} onNotif={addNotif}/>}
+      {emailMod  && <EmailModal email={emailMod} onClose={()=>setEM(null)} onToast={showToast}/>}
+      {waMod     && <WAModal data={waMod} drafters={drafters} onClose={()=>setWA(null)} onToast={showToast}/>}
+      {progMod   && <ProgModal project={progMod} onClose={()=>setPM(null)} onUpdate={p=>{updProj(p);setPM(null);}} onNotif={addNotif}/>}
+    </div>
+  );
+}
+
+// ========== DASHBOARD ==========
+function Dash({projects,drafters,onOpen,onProg}) {
+  const active = projects.filter(p=>p.status==="in_progress").length;
+  const due3   = projects.filter(p=>{const d=daysUntil(p.dueDate);return d!==null&&d>=0&&d<=3&&p.status!=="submitted";});
+  const over   = projects.filter(p=>{const d=daysUntil(p.dueDate);return d!==null&&d<0&&p.status!=="submitted";});
+  return (
+    <div>
+      <h2 style={{margin:"0 0 14px",fontSize:19,fontWeight:800}}>Dashboard</h2>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:11,marginBottom:18}}>
+        {[["Projects",projects.length,"#6366F1","#EEF2FF"],["Active",active,"#3B82F6","#DBEAFE"],["Due Soon",due3.length,"#F59E0B","#FEF3C7"],["Overdue",over.length,"#EF4444","#FEE2E2"]].map(([l,v,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:10,padding:"12px 14px"}}>
+            <div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div>
+            <div style={{fontSize:10,color:"#6B7280",fontWeight:600,marginTop:2}}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:11}}>
+        {projects.map(p=>{
+          const drs=(p.assignedTo||[]).map(id=>drafters.find(d=>d.id===id)).filter(Boolean);
+          const sm=SM[p.status]||SM.pending;
+          const du=daysUntil(p.dueDate);
+          const urg=du!==null&&du<=2&&p.status!=="submitted";
+          return (
+            <div key={p.id} style={{background:"#fff",borderRadius:11,padding:14,border:"2px solid "+(urg?"#FCA5A5":"#E5E7EB"),cursor:"pointer"}} onClick={()=>onOpen(p)} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(99,102,241,.14)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                <div>
+                  {urg&&<div style={{fontSize:8,color:"#DC2626",fontWeight:800,background:"#FEE2E2",display:"inline-block",borderRadius:4,padding:"1px 5px",marginBottom:2}}>DUE IN {du}D</div>}
+                  <div style={{fontSize:9,color:"#6366F1",fontWeight:700}}>{p.id} - {p.client}</div>
+                  <div style={{fontWeight:700,fontSize:13,marginTop:1}}>{p.name}</div>
+                </div>
+                <Chip label={sm.lb} bg={sm.bg} tx={sm.tx}/>
+              </div>
+              <div style={{fontSize:9,color:"#6B7280",marginBottom:8,display:"flex",gap:10}}>
+                <span>{p.totalDrawings} dwgs</span>
+                <span>Due {fmtDate(p.dueDate)}</span>
+                <span>Est {fmtDate(p.estimatedSubmit)}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#6B7280",marginBottom:2}}>
+                    <span>{drs.map(d=>d.name).join("+")}</span>
+                    <span style={{fontWeight:700,color:"#6366F1"}}>{p.progressPct||0}%</span>
+                  </div>
+                  <div style={{height:5,background:"#F3F4F6",borderRadius:99,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:(p.progressPct||0)+"%",background:"linear-gradient(90deg,#6366F1,#A855F7)",borderRadius:99}}/>
+                  </div>
+                </div>
+                <button onClick={e=>{e.stopPropagation();onProg(p);}} style={{background:"#EEF2FF",color:"#4F46E5",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontWeight:700,fontSize:9,whiteSpace:"nowrap"}}>Update %</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ========== PROJECT LIST ==========
+function ProjList({projects,drafters,onSel,onNew}) {
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
+        <h2 style={{margin:0,fontSize:19,fontWeight:800}}>Projects</h2>
+        <button onClick={onNew} style={{background:"linear-gradient(135deg,#6366F1,#A855F7)",border:"none",color:"#fff",padding:"7px 13px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:11,display:"flex",alignItems:"center",gap:4}}>
+          <Ic n="inbox" sz={12} col="#fff"/> Smart Inbox
+        </button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {projects.map(p=>{
+          const sm=SM[p.status]||SM.pending;
+          const drs=(p.assignedTo||[]).map(id=>drafters.find(d=>d.id===id)).filter(Boolean);
+          return (
+            <div key={p.id} onClick={()=>onSel(p)} style={{background:"#fff",borderRadius:10,padding:"11px 14px",border:"1px solid #E5E7EB",display:"flex",alignItems:"center",gap:11,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 3px 12px rgba(99,102,241,.1)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+              <div style={{flex:"0 0 80px"}}>
+                <div style={{fontSize:9,color:"#6366F1",fontWeight:700}}>{p.id}</div>
+                <div style={{fontSize:9,color:"#6B7280"}}>{p.client}</div>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:12}}>{p.name}</div>
+                <div style={{fontSize:9,color:"#6B7280"}}>{p.totalDrawings} dwgs - {drs.map(d=>d.name).join("+")} - Due {fmtDate(p.dueDate)}</div>
+              </div>
+              <div style={{flex:"0 0 90px"}}>
+                <div style={{fontSize:9,color:"#6B7280",marginBottom:2}}>{p.progressPct||0}%</div>
+                <div style={{height:4,background:"#F3F4F6",borderRadius:99,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:(p.progressPct||0)+"%",background:"linear-gradient(90deg,#6366F1,#A855F7)",borderRadius:99}}/>
+                </div>
+              </div>
+              <Chip label={sm.lb} bg={sm.bg} tx={sm.tx}/>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ========== PROJECT DETAIL ==========
+function ProjDetail({project:p,drafters,onBack,onUpdate,onEmail,onWA,onProg}) {
+  const [editN,setEN]=useState(false);
+  const [notes,setNotes]=useState(p.notes);
+  const drs=(p.assignedTo||[]).map(id=>drafters.find(d=>d.id===id)).filter(Boolean);
+  const sm=SM[p.status]||SM.pending;
+  const du=daysUntil(p.dueDate);
+  const days=estimateDays(p.totalDrawings,p.scheduleType||"safe",drs[0]?.exp||"experienced");
+  const done=p.drawings.filter(d=>d.status==="complete").length;
+  const adv=dwg=>onUpdate({...p,drawings:p.drawings.map(x=>x.dwg===dwg.dwg?{...x,status:x.status==="complete"?"pending":x.status==="in_progress"?"complete":"in_progress"}:x)});
+  return (
+    <div>
+      <button onClick={onBack} style={{background:"none",border:"none",color:"#6366F1",fontWeight:700,fontSize:11,cursor:"pointer",padding:"0 0 11px"}}>Back to Projects</button>
+      <div style={{background:"#fff",borderRadius:13,padding:16,border:"1px solid #E5E7EB",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:11}}>
+          <div>
+            <div style={{fontSize:9,color:"#6366F1",fontWeight:700}}>{p.id} - {p.client} - {p.type==="revision"?"REVISION":"NEW"}</div>
+            <h3 style={{margin:"2px 0",fontSize:17,fontWeight:800}}>{p.name}</h3>
+            {p.address&&<div style={{fontSize:10,color:"#6B7280"}}>{p.address}</div>}
+          </div>
+          <div style={{textAlign:"right"}}>
+            <Chip label={sm.lb} bg={sm.bg} tx={sm.tx}/>
+            {du!==null&&p.status!=="submitted"&&<div style={{fontSize:8,color:du<=2?"#DC2626":"#6B7280",fontWeight:700,marginTop:3}}>{du<0?"OVERDUE":du===0?"DUE TODAY":du+"d left"}</div>}
+          </div>
+        </div>
+
+        <div style={{fontSize:9,fontWeight:700,color:"#6B7280",textTransform:"uppercase",marginBottom:4}}>Client Actions (from {EMAIL.client})</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+          <BtnSm label="Acknowledge" bg="#EEF2FF" tx="#4F46E5" onClick={()=>onEmail(mkClientEmail(p,"ack"))}/>
+          <BtnSm label="Status Update" bg="#FEF3C7" tx="#92400E" onClick={()=>onEmail(mkClientEmail(p,"update"))}/>
+          <BtnSm label="Deliver Files" bg="#D1FAE5" tx="#065F46" onClick={()=>onEmail(mkClientEmail(p,"delivery"))}/>
+        </div>
+        <div style={{fontSize:9,fontWeight:700,color:"#6B7280",textTransform:"uppercase",marginBottom:4}}>Drafter Actions (from {EMAIL.drafters})</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+          {drs.map(dr=><BtnSm key={dr.id} label={"Assign "+dr.name} bg="#F0FDF4" tx="#065F46" onClick={()=>onEmail(mkDrafterEmail(p,dr,"assign"))}/>)}
+          {drs.map(dr=><BtnSm key={dr.id+"s"} label={"Status "+dr.name} bg="#F3F4F6" tx="#374151" onClick={()=>onEmail(mkDrafterEmail(p,dr,"status"))}/>)}
+          <BtnSm label="WA Assign" bg="#25D366" tx="#fff" onClick={()=>onWA({project:p,scenario:"assign"})}/>
+          <BtnSm label="WA Status" bg="#128C7E" tx="#fff" onClick={()=>onWA({project:p,scenario:"status"})}/>
+          <BtnSm label="Update %" bg="#EDE9FE" tx="#4C1D95" onClick={()=>onProg(p)}/>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:10}}>
+          {[["Drawings",p.totalDrawings],["Drafter",drs.map(d=>d.name).join("+")],["Est Submit",fmtDate(p.estimatedSubmit)],["Invoice","$"+(calcInv(p)).toLocaleString()]].map(([l,v])=>(
+            <div key={l} style={{background:"#F8F7F4",borderRadius:8,padding:"8px 10px"}}>
+              <div style={{fontWeight:800,fontSize:13}}>{v}</div>
+              <div style={{fontSize:9,color:"#6B7280"}}>{l}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
+          <div style={{flex:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:2}}><span style={{fontWeight:600}}>Progress</span><span style={{fontWeight:800,color:"#6366F1"}}>{p.progressPct||0}%</span></div>
+            <div style={{height:6,background:"#F3F4F6",borderRadius:99,overflow:"hidden"}}>
+              <div style={{height:"100%",width:(p.progressPct||0)+"%",background:"linear-gradient(90deg,#6366F1,#A855F7)",borderRadius:99}}/>
+            </div>
+          </div>
+        </div>
+
+        {p.driveFolder&&<a href={p.driveFolder} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:5,background:"#F0FDF4",borderRadius:7,padding:"6px 10px",fontSize:10,color:"#065F46",fontWeight:600,textDecoration:"none",marginBottom:10}}>Google Drive Folder</a>}
+      </div>
+
+      <div style={{background:"#FFFBEB",borderRadius:11,padding:12,border:"1px solid #FDE68A",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+          <span style={{fontSize:10,fontWeight:700,color:"#92400E"}}>Notes for Drafter</span>
+          <button onClick={()=>{if(editN)onUpdate({...p,notes});setEN(!editN);}} style={{background:"none",border:"none",color:"#92400E",cursor:"pointer",fontSize:9,fontWeight:700}}>{editN?"Save":"Edit"}</button>
+        </div>
+        {editN?<textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2} style={{width:"100%",border:"1px solid #FDE68A",borderRadius:6,padding:6,fontSize:10,fontFamily:"inherit",resize:"vertical",outline:"none",boxSizing:"border-box"}}/>:<div style={{fontSize:10,color:"#78350F"}}>{p.notes||"No notes."}</div>}
+      </div>
+
+      <div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #E5E7EB"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+          <h4 style={{margin:0,fontSize:12,fontWeight:800}}>Drawing Tracker</h4>
+          <span style={{fontSize:10,color:"#6B7280"}}>{done}/{p.drawings.length} complete</span>
+        </div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+          <thead><tr style={{borderBottom:"2px solid #F3F4F6"}}>
+            {["Sheet","Floor","Columns","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"5px 7px",color:"#6B7280",fontWeight:700,fontSize:8,textTransform:"uppercase"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {p.drawings.map((d,i)=>{
+              const sm2=SM[d.status]||SM.pending;
+              return <tr key={i} style={{borderBottom:"1px solid #F3F4F6"}}>
+                <td style={{padding:"6px 7px",fontWeight:700,color:"#6366F1"}}>{d.dwg}</td>
+                <td style={{padding:"6px 7px"}}>{d.floor}</td>
+                <td style={{padding:"6px 7px",color:"#6B7280"}}>{d.columns||"---"}</td>
+                <td style={{padding:"6px 7px"}}><Chip label={sm2.lb} bg={sm2.bg} tx={sm2.tx}/></td>
+                <td style={{padding:"6px 7px"}}><button onClick={()=>adv(d)} style={{background:"#F3F4F6",border:"none",borderRadius:5,padding:"2px 7px",cursor:"pointer",fontSize:9,fontWeight:600}}>Next</button></td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+        <button onClick={()=>onUpdate({...p,drawings:[...p.drawings,{dwg:"S-NEW",floor:"New Floor",columns:"",status:"pending"}]})} style={{marginTop:9,background:"#EEF2FF",color:"#4F46E5",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:700,fontSize:10,display:"flex",alignItems:"center",gap:3}}>
+          <Ic n="plus" sz={10}/> Add Row
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ========== TRACKER ==========
+function Tracker({projects,onUpdate,onNotif}) {
+  return (
+    <div>
+      <h2 style={{margin:"0 0 14px",fontSize:19,fontWeight:800}}>Submission Tracker</h2>
+      <div style={{background:"#fff",borderRadius:12,overflow:"hidden",border:"1px solid #E5E7EB"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+          <thead><tr style={{background:"#F8F7FF"}}>
+            {["Job #","Project","Client","Received","Est Submit","Deadline","Submitted","Status","Pct"].map(h=><th key={h} style={{textAlign:"left",padding:"8px 10px",color:"#6B7280",fontWeight:700,fontSize:8,textTransform:"uppercase",borderBottom:"2px solid #E5E7EB"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {projects.map(p=>{
+              const du=daysUntil(p.dueDate);
+              const urg=du!==null&&du<=2&&p.status!=="submitted";
+              const sm=SM[p.status]||SM.pending;
+              return <tr key={p.id} style={{borderBottom:"1px solid #F3F4F6",background:urg?"#FFF7F7":"transparent"}}>
+                <td style={{padding:"8px 10px",fontWeight:700,color:"#6366F1"}}>{p.id}</td>
+                <td style={{padding:"8px 10px",fontWeight:600}}>{p.name}</td>
+                <td style={{padding:"8px 10px",color:"#6B7280"}}>{p.client}</td>
+                <td style={{padding:"8px 10px",color:"#6B7280",whiteSpace:"nowrap"}}>{fmtDate(p.receivedDate)}</td>
+                <td style={{padding:"8px 10px",color:"#7C3AED",fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(p.estimatedSubmit)}</td>
+                <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}><span style={{color:urg?"#DC2626":"#374151",fontWeight:urg?700:400}}>{urg?"URGENT: ":""}{fmtDate(p.dueDate)}{du!==null&&p.status!=="submitted"?" ("+du+"d)":""}</span></td>
+                <td style={{padding:"8px 10px"}}>
+                  {p.submittedDate?<span style={{color:"#065F46",fontWeight:700}}>Done {fmtDate(p.submittedDate)}</span>:<button onClick={()=>{const today=new Date().toISOString().slice(0,10);onUpdate({...p,submittedDate:today,status:"submitted"});onNotif(p.id+" marked submitted");}} style={{background:"#D1FAE5",color:"#065F46",border:"none",borderRadius:5,padding:"3px 8px",cursor:"pointer",fontWeight:700,fontSize:9}}>Mark Submitted</button>}
+                </td>
+                <td style={{padding:"8px 10px"}}><Chip label={sm.lb} bg={sm.bg} tx={sm.tx}/></td>
+                <td style={{padding:"8px 10px",fontWeight:700,color:"#6366F1"}}>{p.progressPct||0}%</td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ========== TEAM PANEL ==========
+function TeamPanel({drafters,projects,onUpdate,onEmail,onWA}) {
+  return (
+    <div>
+      <h2 style={{margin:"0 0 14px",fontSize:19,fontWeight:800}}>Team</h2>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+        {drafters.map(d=>{
+          const myP=projects.filter(p=>(p.assignedTo||[]).includes(d.id));
+          const openDwgs=myP.filter(p=>p.status==="in_progress").reduce((s,p)=>s+p.drawings.filter(dw=>dw.status!=="complete").length,0);
+          const days=Math.ceil(openDwgs*(d.exp==="new"?HOURS.newDrafter:HOURS.safe)/HOURS.day);
+          const over=days>5;
+          const am=AM[d.status]||AM.available;
+          return (
+            <div key={d.id} style={{background:"#fff",borderRadius:12,padding:16,border:"2px solid "+(over?"#FCA5A5":"#E5E7EB")}}>
+              {over&&<div style={{background:"#FEE2E2",color:"#DC2626",fontSize:8,fontWeight:700,padding:"2px 6px",borderRadius:20,display:"inline-block",marginBottom:7}}>OVERLOADED</div>}
+              <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:11}}>
+                <div style={{width:40,height:40,borderRadius:"50%",background:"linear-gradient(135deg,#A855F7,#6366F1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff"}}>{d.av}</div>
+                <div>
+                  <div style={{fontWeight:800,fontSize:13}}>{d.name}</div>
+                  <div style={{fontSize:9,color:"#6B7280"}}>{d.email}</div>
+                  <div style={{fontSize:8,color:"#818CF8",marginTop:1}}>{d.note}</div>
+                </div>
+              </div>
+              {d.schedule==="limited"&&<div style={{background:"#FFF7ED",borderRadius:6,padding:"4px 8px",fontSize:9,color:"#92400E",fontWeight:600,marginBottom:9}}>Mon-Fri 7AM-1PM USA only</div>}
+              <div style={{marginBottom:9}}>
+                <div style={{fontSize:8,fontWeight:700,color:"#374151",marginBottom:4}}>STATUS</div>
+                <div style={{display:"flex",gap:4}}>
+                  {["available","busy","vacation"].map(s=><button key={s} onClick={()=>onUpdate({...d,status:s})} style={{flex:1,background:d.status===s?AM[s].bg:"#F3F4F6",color:d.status===s?AM[s].tx:"#6B7280",border:d.status===s?"1px solid "+AM[s].dot:"1px solid #E5E7EB",borderRadius:5,padding:"3px 0",cursor:"pointer",fontSize:7,fontWeight:700,textTransform:"capitalize"}}>{AM[s].lb}</button>)}
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,textAlign:"center",marginBottom:9}}>
+                {[[myP.length,"Jobs","#6366F1"],[openDwgs,"Open Dwgs","#F59E0B"],[days+"d",over?"OVER":"Load",over?"#EF4444":"#10B981"]].map(([v,l,c])=>(
+                  <div key={l} style={{background:"#F8F7F4",borderRadius:6,padding:"5px 0"}}>
+                    <div style={{fontWeight:900,fontSize:14,color:c}}>{v}</div>
+                    <div style={{fontSize:7,color:"#6B7280"}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+              {myP.map(p=><div key={p.id} style={{fontSize:8,padding:"2px 6px",background:"#F3F4F6",borderRadius:4,marginBottom:3,display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:700,color:"#6366F1"}}>{p.id}</span><span>{p.name.slice(0,14)}</span><span style={{color:"#6366F1",fontWeight:700}}>{p.progressPct||0}%</span></div>)}
+              <div style={{display:"flex",gap:5,marginTop:9}}>
+                <a href={"https://wa.me/"+d.wa.replace(/\D/g,"")} target="_blank" rel="noreferrer" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:6,padding:"5px 0",textAlign:"center",fontWeight:700,fontSize:8,cursor:"pointer",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center",gap:2}}><Ic n="wa" sz={9}/>WA</a>
+                <button onClick={()=>onEmail({from:EMAIL.drafters,to:d.email,cc:"",subject:"Hi "+d.name,body:"Hi "+d.name+",\n\n"})} style={{flex:1,background:"#EEF2FF",color:"#4F46E5",border:"none",borderRadius:6,padding:"5px 0",fontWeight:700,fontSize:8,cursor:"pointer"}}>Email</button>
+              </div>
+              {d.status==="vacation"&&<div style={{marginTop:7,background:"#FEF2F2",borderRadius:5,padding:"3px 7px",fontSize:8,color:"#DC2626",fontWeight:700,textAlign:"center"}}>On vacation - do not assign</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ========== EMAIL HUB ==========
+function EmailHub({projects,drafters,onOpen}) {
+  const [selP,setSP]=useState(projects[0]?.id||"");
+  const [selT,setST]=useState("ack");
+  const types=[{k:"ack",lb:"Acknowledge Client"},{k:"update",lb:"Status to Client"},{k:"delivery",lb:"Deliver to Client"},{k:"assign",lb:"Assign Drafter"},{k:"status",lb:"Check Drafter"}];
+  const getEmail=()=>{
+    const p=projects.find(x=>x.id===selP);if(!p)return null;
+    const dr=drafters.find(d=>(p.assignedTo||[]).includes(d.id));
+    if(selT==="ack"||selT==="update"||selT==="delivery") return mkClientEmail(p,selT);
+    if(dr&&(selT==="assign"||selT==="status")) return mkDrafterEmail(p,dr,selT);
+    return null;
+  };
+  const em=getEmail();
+  return (
+    <div>
+      <h2 style={{margin:"0 0 4px",fontSize:19,fontWeight:800}}>Email Hub</h2>
+      <div style={{fontSize:10,color:"#6B7280",marginBottom:12}}>
+        Client: <strong style={{color:"#818CF8"}}>{EMAIL.client}</strong> to {EMAIL.fromClient} (CC: {EMAIL.cc1}, {EMAIL.cc2})<br/>
+        Drafters: <strong style={{color:"#34D399"}}>{EMAIL.drafters}</strong> to each drafter Gmail
+      </div>
+      <div style={{background:"#fff",borderRadius:11,padding:13,border:"1px solid #E5E7EB",marginBottom:11}}>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+          {types.map(t=><button key={t.k} onClick={()=>setST(t.k)} style={{background:selT===t.k?"linear-gradient(135deg,#6366F1,#A855F7)":"#F3F4F6",color:selT===t.k?"#fff":"#374151",border:"none",borderRadius:6,padding:"6px 11px",cursor:"pointer",fontWeight:700,fontSize:10}}>{t.lb}</button>)}
+        </div>
+        <select value={selP} onChange={e=>setSP(e.target.value)} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:7,padding:"7px 9px",fontSize:11,outline:"none",background:"#F8F7F4"}}>
+          {projects.map(p=><option key={p.id} value={p.id}>{p.id} - {p.name} ({p.client})</option>)}
+        </select>
+      </div>
+      {em&&<div style={{background:"#fff",borderRadius:11,padding:13,border:"2px solid #C7D2FE"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:9}}>
+          <div style={{fontSize:10,color:"#4F46E5",fontWeight:700}}>From: {em.from}</div>
+          <button onClick={()=>onOpen(em)} style={{background:"linear-gradient(135deg,#6366F1,#A855F7)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:700,fontSize:10}}>Open and Send</button>
+        </div>
+        <div style={{fontSize:9,color:"#6B7280",marginBottom:2}}>To: {em.to}{em.cc?" | CC: "+em.cc:""}</div>
+        <div style={{fontSize:9,color:"#6B7280",marginBottom:8}}>Subject: {em.subject}</div>
+        <pre style={{fontFamily:"inherit",fontSize:10,color:"#374151",background:"#F8F7F4",borderRadius:7,padding:10,whiteSpace:"pre-wrap",margin:0,maxHeight:220,overflowY:"auto",lineHeight:1.6}}>{em.body}</pre>
+      </div>}
+    </div>
+  );
+}
+
+// ========== INVOICES ==========
+function InvPanel({projects,drafters,onUpdate,onEmail,onPDF}) {
+  const [sel,setSel]=useState(null);
+  if(sel) return <InvDetail project={sel} drafters={drafters} onBack={()=>setSel(null)} onUpdate={p=>{onUpdate(p);setSel(p);}} onEmail={onEmail} onPDF={onPDF}/>;
+  const totalBilled=projects.reduce((s,p)=>s+calcInv(p),0);
+  const totalSent=projects.filter(p=>p.invoiced).reduce((s,p)=>s+calcInv(p),0);
+  const totalPay=projects.reduce((s,p)=>s+calcPay(p,drafters).reduce((a,h)=>a+h.pay,0),0);
+  return (
+    <div>
+      <h2 style={{margin:"0 0 12px",fontSize:19,fontWeight:800}}>Invoices and Billing</h2>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9,marginBottom:14}}>
+        {[["Total Billed","$"+totalBilled.toLocaleString(),"#6366F1","#EEF2FF"],["Sent","$"+totalSent.toLocaleString(),"#10B981","#D1FAE5"],["Pending","$"+(totalBilled-totalSent).toLocaleString(),"#F59E0B","#FEF3C7"],["Drafter Cost","$"+totalPay.toFixed(2),"#EC4899","#FCE7F3"]].map(([l,v,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:9,padding:"10px 12px"}}>
+            <div style={{fontWeight:900,fontSize:17,color:c}}>{v}</div>
+            <div style={{fontSize:9,color:"#6B7280",fontWeight:600,marginTop:1}}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:"#F8F7FF",borderRadius:9,padding:"9px 12px",border:"1px solid #C7D2FE",marginBottom:13,fontSize:10}}>
+        <strong style={{color:"#4F46E5"}}>Billing Rules: </strong>
+        <span style={{color:"#374151"}}>New project = $150/stud rail floor | Revision (EOR) = $50/drafter hour | Our mistakes = $0</span><br/>
+        <span style={{color:"#6B7280"}}>Pay rates: Joe $5/hr | Junell $5.50/hr | Jay $5/hr</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        {projects.map((p,i)=>{
+          const inv=calcInv(p);
+          const pay=calcPay(p,drafters).reduce((s,h)=>s+h.pay,0);
+          const hrs=(p.drafterHours||[]).reduce((s,h)=>s+Number(h.hours||0),0);
+          return (
+            <div key={p.id} onClick={()=>setSel(p)} style={{background:"#fff",borderRadius:10,padding:"11px 14px",border:"1px solid #E5E7EB",cursor:"pointer",display:"flex",alignItems:"center",gap:11}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 3px 12px rgba(99,102,241,.1)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+              <div style={{flex:"0 0 65px"}}>
+                <div style={{fontSize:8,color:"#6B7280"}}>INV-{String(i+1).padStart(3,"0")}</div>
+                <div style={{fontWeight:900,fontSize:15}}>${inv.toLocaleString()}</div>
+                <div style={{fontSize:8,color:"#EC4899"}}>pay ${pay.toFixed(2)}</div>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:11}}>{p.id} - {p.name}</div>
+                <div style={{fontSize:9,color:"#6B7280"}}>{p.client} | {p.billingType==="revision"?"Revision":"New"} | {p.studRailFloors||p.totalDrawings} {p.billingType==="revision"?"hrs logged":"floors"}</div>
+                <div style={{fontSize:8,color:"#6B7280",marginTop:1}}>Received: {p.receivedDate||"---"} | Submitted: {p.submittedDate||"pending"}</div>
+              </div>
+              <div style={{textAlign:"right",flex:"0 0 75px"}}>
+                <div style={{fontSize:9,fontWeight:700,color:inv-pay>0?"#065F46":"#DC2626"}}>Margin: ${(inv-pay).toFixed(2)}</div>
+                <div style={{fontSize:8,color:"#6B7280"}}>{hrs}h logged</div>
+              </div>
+              <Chip label={p.invoiced?"SENT":"PENDING"} bg={p.invoiced?"#D1FAE5":"#FEF3C7"} tx={p.invoiced?"#065F46":"#92400E"}/>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InvDetail({project:p,drafters,onBack,onUpdate,onEmail,onPDF}) {
+  const [newH,setNH]=useState({drafterId:"d1",hours:"",description:"",date:new Date().toISOString().slice(0,10),billable:true});
+  const inv=calcInv(p);
+  const rows=calcPay(p,drafters);
+  const totalPay=rows.reduce((s,h)=>s+h.pay,0);
+  const totalHrs=(p.drafterHours||[]).reduce((s,h)=>s+Number(h.hours||0),0);
+  const addH=()=>{ if(!newH.hours||!newH.drafterId)return; onUpdate({...p,drafterHours:[...(p.drafterHours||[]),{...newH,id:Date.now()}]}); setNH({drafterId:"d1",hours:"",description:"",date:new Date().toISOString().slice(0,10),billable:true}); };
+  const delH=id=>onUpdate({...p,drafterHours:(p.drafterHours||[]).filter(h=>h.id!==id)});
+  return (
+    <div>
+      <button onClick={onBack} style={{background:"none",border:"none",color:"#6366F1",fontWeight:700,fontSize:11,cursor:"pointer",padding:"0 0 11px"}}>Back to Invoices</button>
+      <div style={{background:"#fff",borderRadius:12,padding:16,border:"1px solid #E5E7EB",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+          <div>
+            <div style={{fontSize:9,color:"#6366F1",fontWeight:700}}>{p.id} - {p.client}</div>
+            <h3 style={{margin:"2px 0",fontSize:17,fontWeight:800}}>{p.name}</h3>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:20,fontWeight:900,color:"#6366F1"}}>${inv.toFixed(2)}</div>
+            <Chip label={p.invoiced?"SENT":"PENDING"} bg={p.invoiced?"#D1FAE5":"#FEF3C7"} tx={p.invoiced?"#065F46":"#92400E"}/>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:7,marginBottom:12}}>
+          <div style={{background:"#F8F7F4",borderRadius:7,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:"#6B7280",marginBottom:2}}>Billing Type</div>
+            <select value={p.billingType||"new"} onChange={e=>onUpdate({...p,billingType:e.target.value})} style={{width:"100%",border:"none",background:"transparent",fontWeight:700,fontSize:11,outline:"none",cursor:"pointer"}}>
+              <option value="new">New ($150/floor)</option>
+              <option value="revision">Revision ($50/hr)</option>
+            </select>
+          </div>
+          <div style={{background:"#F8F7F4",borderRadius:7,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:"#6B7280",marginBottom:2}}>Stud Rail Floors</div>
+            <input type="number" value={p.studRailFloors||""} onChange={e=>onUpdate({...p,studRailFloors:Number(e.target.value)})} style={{width:"100%",border:"none",background:"transparent",fontWeight:700,fontSize:13,outline:"none"}}/>
+          </div>
+          <div style={{background:"#EEF2FF",borderRadius:7,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:"#6B7280",marginBottom:2}}>Invoice Total</div>
+            <div style={{fontWeight:900,fontSize:15,color:"#6366F1"}}>${inv.toFixed(2)}</div>
+          </div>
+          <div style={{background:"#FCE7F3",borderRadius:7,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:"#6B7280",marginBottom:2}}>Drafter Cost</div>
+            <div style={{fontWeight:900,fontSize:15,color:"#EC4899"}}>${totalPay.toFixed(2)}</div>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:12}}>
+          {[["Invoice No","invoiceNo","text"],["Invoice Date","invoiceDate","date"],["Payment Terms","paymentTerms","text"]].map(([l,k,t])=>(
+            <div key={k}>
+              <label style={{fontSize:8,fontWeight:700,color:"#6B7280",display:"block",marginBottom:2}}>{l}</label>
+              <input type={t} value={p[k]||""} onChange={e=>onUpdate({...p,[k]:e.target.value})} placeholder={k==="paymentTerms"?"Net 30":k==="invoiceNo"?"INV-"+p.id:""} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:5,padding:"5px 7px",fontSize:10,outline:"none",boxSizing:"border-box"}}/>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <button onClick={()=>onPDF(p,drafters)} style={{background:"#1A1A2E",color:"#fff",border:"none",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:10,display:"flex",alignItems:"center",gap:4}}><Ic n="pdf" sz={12} col="#fff"/> Download PDF</button>
+          <button onClick={()=>onEmail(mkInvEmail(p,inv))} style={{background:"linear-gradient(135deg,#EA4335,#FBBC05)",color:"#fff",border:"none",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:10}}>Email Invoice</button>
+          {!p.invoiced&&<button onClick={()=>onUpdate({...p,invoiced:true})} style={{background:"#D1FAE5",color:"#065F46",border:"none",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:10}}>Mark Sent</button>}
+        </div>
+      </div>
+
+      <div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #E5E7EB",marginBottom:10}}>
+        <div style={{fontWeight:700,fontSize:12,marginBottom:10}}>Drafter Hours Log</div>
+        <div style={{background:"#F8F7FF",borderRadius:8,padding:10,marginBottom:10,border:"1px solid #C7D2FE"}}>
+          <div style={{fontSize:9,fontWeight:700,color:"#4F46E5",marginBottom:6}}>+ Add Hours</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 2fr auto",gap:6,alignItems:"center"}}>
+            <select value={newH.drafterId} onChange={e=>setNH(n=>({...n,drafterId:e.target.value}))} style={{border:"1px solid #E5E7EB",borderRadius:5,padding:"4px 6px",fontSize:10,outline:"none"}}>
+              {drafters.map(d=><option key={d.id} value={d.id}>{d.name} (${PAY[d.id]}/hr)</option>)}
+            </select>
+            <input type="number" placeholder="Hours" value={newH.hours} onChange={e=>setNH(n=>({...n,hours:e.target.value}))} style={{border:"1px solid #E5E7EB",borderRadius:5,padding:"4px 6px",fontSize:10,outline:"none"}}/>
+            <input type="date" value={newH.date} onChange={e=>setNH(n=>({...n,date:e.target.value}))} style={{border:"1px solid #E5E7EB",borderRadius:5,padding:"4px 6px",fontSize:10,outline:"none"}}/>
+            <input placeholder="Description" value={newH.description} onChange={e=>setNH(n=>({...n,description:e.target.value}))} style={{border:"1px solid #E5E7EB",borderRadius:5,padding:"4px 6px",fontSize:10,outline:"none"}}/>
+            <button onClick={addH} style={{background:"#6366F1",color:"#fff",border:"none",borderRadius:5,padding:"4px 9px",cursor:"pointer",fontWeight:700,fontSize:10}}>Add</button>
+          </div>
+          <label style={{fontSize:9,color:"#374151",display:"flex",alignItems:"center",gap:4,marginTop:6,cursor:"pointer"}}>
+            <input type="checkbox" checked={newH.billable} onChange={e=>setNH(n=>({...n,billable:e.target.checked}))}/>
+            EOR-driven (billable to client at $50/hr)
+          </label>
+        </div>
+        {(p.drafterHours||[]).length===0
+          ?<div style={{fontSize:10,color:"#9CA3AF",textAlign:"center",padding:14}}>No hours logged yet</div>
+          :<table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+            <thead><tr style={{borderBottom:"2px solid #F3F4F6"}}>
+              {["Date","Drafter","Hrs","Rate","Pay","Description","Billable",""].map(h=><th key={h} style={{textAlign:"left",padding:"4px 6px",color:"#6B7280",fontWeight:700,fontSize:8,textTransform:"uppercase"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {rows.map((h,i)=>(
+                <tr key={h.id||i} style={{borderBottom:"1px solid #F3F4F6"}}>
+                  <td style={{padding:"5px 6px",color:"#6B7280"}}>{h.date}</td>
+                  <td style={{padding:"5px 6px",fontWeight:600}}>{h.dname}</td>
+                  <td style={{padding:"5px 6px",fontWeight:700}}>{h.hours}</td>
+                  <td style={{padding:"5px 6px",color:"#6B7280"}}>${h.rate}/hr</td>
+                  <td style={{padding:"5px 6px",fontWeight:700,color:"#EC4899"}}>${h.pay.toFixed(2)}</td>
+                  <td style={{padding:"5px 6px",color:"#374151"}}>{h.description}</td>
+                  <td style={{padding:"5px 6px"}}><Chip label={h.billable?"BILLABLE":"NO CHARGE"} bg={h.billable?"#D1FAE5":"#F3F4F6"} tx={h.billable?"#065F46":"#6B7280"}/></td>
+                  <td style={{padding:"5px 6px"}}><button onClick={()=>delH(h.id)} style={{background:"#FEE2E2",border:"none",borderRadius:4,padding:"2px 5px",cursor:"pointer",color:"#DC2626",fontSize:9}}>X</button></td>
+                </tr>
+              ))}
+              <tr style={{borderTop:"2px solid #E5E7EB",background:"#F8F7F4"}}>
+                <td colSpan={2} style={{padding:"5px 6px",fontWeight:800,fontSize:11}}>TOTAL</td>
+                <td style={{padding:"5px 6px",fontWeight:800}}>{totalHrs}h</td>
+                <td/>
+                <td style={{padding:"5px 6px",fontWeight:800,color:"#EC4899"}}>${totalPay.toFixed(2)}</td>
+                <td colSpan={3} style={{padding:"5px 6px",fontSize:9,color:"#6B7280"}}>Margin: <strong style={{color:"#065F46"}}>${(inv-totalPay).toFixed(2)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        }
+      </div>
+    </div>
+  );
+}
+
+// ========== SMART INBOX ==========
+function SmartInbox({drafters,onClose,onCreate,onToast,onNotif}) {
+  const [step,setStep]=useState("paste");
+  const [body,setBody]=useState("");
+  const [pdfs,setPDFs]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [parsed,setParsed]=useState(null);
+  const [assignIds,setAssIds]=useState([]);
+  const ref=useRef();
+  const toB64=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(f);});
+  const analyze=async()=>{
+    if(!body.trim()&&pdfs.length===0){onToast("Paste email or upload PDF","error");return;}
+    setLoading(true);
+    try{
+      const blocks=[];
+      for(const f of pdfs){const b64=await toB64(f);blocks.push({type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}});}
+      blocks.push({type:"text",text:"Extract stud rail project info. Return ONLY valid JSON:\n{\"projectId\":\"YYYYNNN\",\"projectName\":\"building name\",\"client\":\"company\",\"address\":\"full address\",\"type\":\"new or revision\",\"totalDrawings\":number,\"deadline\":\"deadline text\",\"dueDate\":\"YYYY-MM-DD or null\",\"drawings\":[{\"dwg\":\"sheet\",\"floor\":\"floor\",\"columns\":\"cols\",\"status\":\"pending\"}],\"notes\":\"notes\",\"suggestTwo\":true/false,\"reason\":\"why\"}\nEMAIL:\n"+(body||"(see PDF)")});
+      const raw=await callAI(blocks,"Return only valid JSON. No markdown.");
+      const data=JSON.parse(raw.replace(/```json|```/g,"").trim());
+      data.receivedDate=new Date().toISOString().slice(0,10);
+      data.status="pending"; data.invoiced=false; data.scheduleType="safe"; data.progressPct=0;
+      data.studRailFloors=data.totalDrawings||0;
+      data.billingType=data.type==="revision"?"revision":"new";
+      data.invoiceAmount=(data.totalDrawings||0)*(data.type==="revision"?0:150);
+      data.drafterHours=[]; data.invoiceNo=""; data.invoiceDate=""; data.paymentTerms="Net 30";
+      data.driveFolder="https://drive.google.com/drive/search?q="+(data.projectId||"");
+      setParsed(data); setAssIds([]); setStep("result");
+      onNotif((data.type==="revision"?"REVISION":"NEW PROJECT")+": "+data.projectName+" - "+data.client);
+    }catch(e){
+      const blank={projectId:genId(),projectName:"",client:"",address:"",type:"new",totalDrawings:0,deadline:"",dueDate:"",drawings:[{dwg:"",floor:"",columns:"",status:"pending"}],notes:"",receivedDate:new Date().toISOString().slice(0,10),status:"pending",invoiced:false,scheduleType:"safe",progressPct:0,studRailFloors:0,billingType:"new",invoiceAmount:0,drafterHours:[],invoiceNo:"",invoiceDate:"",paymentTerms:"Net 30",driveFolder:"",suggestTwo:false,reason:""};
+      setParsed(blank); setStep("result"); onToast("Could not auto-parse - fill manually","info");
+    }
+    setLoading(false);
+  };
+  const setF=(k,v)=>setParsed(p=>({...p,[k]:v}));
+  const addRow=()=>setParsed(p=>({...p,drawings:[...p.drawings,{dwg:"",floor:"",columns:"",status:"pending"}]}));
+  const updRow=(i,k,v)=>setParsed(p=>({...p,drawings:p.drawings.map((d,j)=>j===i?{...d,[k]:v}:d)}));
+  const submit=()=>{
+    if(assignIds.length===0){onToast("Select at least one drafter","error");return;}
+    const pr={...parsed,id:parsed.projectId||genId(),name:parsed.projectName,assignedTo:assignIds};
+    const exp=drafters.find(d=>d.id===assignIds[0])?.exp||"experienced";
+    const days=estimateDays(pr.totalDrawings||1,pr.scheduleType||"safe",exp);
+    pr.estimatedSubmit=addWorkDays(pr.receivedDate,days);
+    pr.totalDrawings=pr.drawings.filter(d=>d.dwg).length||pr.totalDrawings;
+    onCreate(pr); onClose();
+  };
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:14}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:640,maxHeight:"93vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.4)"}}>
+        <div style={{background:"linear-gradient(135deg,#0F1629,#1E2D4E)",borderRadius:"16px 16px 0 0",padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:14}}>Smart Inbox</div>
+            <div style={{color:"#818CF8",fontSize:9,marginTop:1}}>Paste email from {EMAIL.fromClient} + upload PDFs to auto-create project</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#9CA3AF"}}><Ic n="close" sz={15}/></button>
+        </div>
+        <div style={{padding:16}}>
+          {step==="paste"&&(
+            <>
+              <div style={{background:"#EEF2FF",borderRadius:7,padding:"6px 10px",fontSize:10,color:"#4338CA",fontWeight:600,marginBottom:11}}>Watching for emails from: {EMAIL.fromClient}</div>
+              <label style={{fontSize:10,fontWeight:700,color:"#374151",display:"block",marginBottom:3}}>Paste Client Email Body</label>
+              <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={"Paste email from "+EMAIL.fromClient+" here..."} rows={8} style={{width:"100%",border:"2px solid #E5E7EB",borderRadius:8,padding:"8px 10px",fontSize:11,outline:"none",resize:"vertical",fontFamily:"inherit",lineHeight:1.6,boxSizing:"border-box",marginBottom:11}}/>
+              <label style={{fontSize:10,fontWeight:700,color:"#374151",display:"block",marginBottom:3}}>Upload PDFs (optional)</label>
+              <div onClick={()=>ref.current.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();setPDFs([...pdfs,...Array.from(e.dataTransfer.files).filter(f=>f.type==="application/pdf")]);}} style={{border:"2px dashed #C7D2FE",borderRadius:8,padding:14,textAlign:"center",cursor:"pointer",background:"#F8F7FF",marginBottom:11}}>
+                <div style={{fontSize:18,marginBottom:2}}>PDF</div>
+                <div style={{fontSize:10,color:"#6B7280"}}>Drop PDFs or click to choose</div>
+                <input ref={ref} type="file" accept=".pdf" multiple style={{display:"none"}} onChange={e=>setPDFs([...pdfs,...Array.from(e.target.files)])}/>
+              </div>
+              {pdfs.map((f,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",background:"#F3F4F6",borderRadius:5,padding:"3px 8px",marginBottom:4,fontSize:10}}><span>{f.name}</span><button onClick={()=>setPDFs(pdfs.filter((_,j)=>j!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#EF4444",fontSize:11}}>X</button></div>)}
+              <div style={{display:"flex",gap:7}}>
+                <button onClick={()=>{const b={projectId:genId(),projectName:"",client:"",address:"",type:"new",totalDrawings:0,deadline:"",dueDate:"",drawings:[{dwg:"",floor:"",columns:"",status:"pending"}],notes:"",receivedDate:new Date().toISOString().slice(0,10),status:"pending",invoiced:false,scheduleType:"safe",progressPct:0,studRailFloors:0,billingType:"new",invoiceAmount:0,drafterHours:[],invoiceNo:"",invoiceDate:"",paymentTerms:"Net 30",driveFolder:"",suggestTwo:false,reason:""};setParsed(b);setStep("result");}} style={{flex:1,background:"#F3F4F6",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:11}}>Manual Entry</button>
+                <button onClick={analyze} disabled={loading} style={{flex:2,background:"linear-gradient(135deg,#6366F1,#A855F7)",color:"#fff",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:800,fontSize:11,opacity:loading?.7:1}}>
+                  {loading?"Analyzing...":"Auto-Detect Project"}
+                </button>
+              </div>
+            </>
+          )}
+          {step==="result"&&parsed&&(
+            <>
+              {parsed.suggestTwo!==undefined&&<div style={{background:parsed.suggestTwo?"#FEF3C7":"#D1FAE5",borderRadius:8,padding:"8px 11px",marginBottom:11,fontSize:10,fontWeight:600,color:parsed.suggestTwo?"#92400E":"#065F46"}}>
+                AI Recommendation: {parsed.suggestTwo?"Assign 2 drafters":"1 drafter is enough"}{parsed.reason?" - "+parsed.reason:""}
+              </div>}
+              <div style={{marginBottom:11}}>
+                <label style={{fontSize:10,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Assign Drafter(s)</label>
+                <div style={{display:"flex",gap:6}}>
+                  {DRAFTERS_INIT.map(d=>{
+                    const sel=assignIds.includes(d.id);
+                    return <button key={d.id} onClick={()=>setAssIds(sel?assignIds.filter(x=>x!==d.id):[...assignIds,d.id])} style={{flex:1,background:sel?"linear-gradient(135deg,#6366F1,#A855F7)":"#F3F4F6",color:sel?"#fff":"#374151",border:"none",borderRadius:8,padding:"8px 4px",cursor:"pointer",fontWeight:700,fontSize:10,textAlign:"center"}}>
+                      <div style={{fontSize:14,marginBottom:1}}>{d.av}</div>
+                      <div>{d.name}</div>
+                      {d.schedule==="limited"&&<div style={{fontSize:7,color:sel?"#C7D2FE":"#F59E0B",marginTop:1}}>Limited hrs</div>}
+                    </button>;
+                  })}
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}}>
+                {[["Project ID","projectId"],["Project Name","projectName"],["Client","client"],["Address","address"],["Due Date","dueDate","date"],["Deadline","deadline"],["Invoice ($)","invoiceAmount","number"],["Type","type"]].map(([l,k,t])=>(
+                  <div key={k} style={{gridColumn:k==="projectName"||k==="address"?"1 / -1":"auto"}}>
+                    <label style={{fontSize:9,fontWeight:700,color:"#374151",display:"block",marginBottom:2}}>{l}</label>
+                    {k==="type"?<select value={parsed[k]||"new"} onChange={e=>setF(k,e.target.value)} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:5,padding:"5px 7px",fontSize:10,outline:"none"}}><option value="new">New Project</option><option value="revision">Revision</option></select>:<input type={t||"text"} value={parsed[k]||""} onChange={e=>setF(k,e.target.value)} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:5,padding:"5px 7px",fontSize:10,outline:"none",boxSizing:"border-box"}}/>}
+                  </div>
+                ))}
+              </div>
+              <label style={{fontSize:9,fontWeight:700,color:"#374151",display:"block",marginBottom:4}}>Drawings</label>
+              {(parsed.drawings||[]).map((d,i)=>(
+                <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 2fr auto",gap:5,marginBottom:5,alignItems:"center"}}>
+                  <input placeholder="Sheet" value={d.dwg} onChange={e=>updRow(i,"dwg",e.target.value)} style={{border:"1px solid #E5E7EB",borderRadius:5,padding:"4px 6px",fontSize:9,outline:"none"}}/>
+                  <input placeholder="Floor" value={d.floor} onChange={e=>updRow(i,"floor",e.target.value)} style={{border:"1px solid #E5E7EB",borderRadius:5,padding:"4px 6px",fontSize:9,outline:"none"}}/>
+                  <input placeholder="Columns" value={d.columns||""} onChange={e=>updRow(i,"columns",e.target.value)} style={{border:"1px solid #E5E7EB",borderRadius:5,padding:"4px 6px",fontSize:9,outline:"none"}}/>
+                  <button onClick={()=>setParsed(p=>({...p,drawings:p.drawings.filter((_,j)=>j!==i)}))} style={{background:"#FEE2E2",border:"none",borderRadius:5,padding:"4px 6px",cursor:"pointer",color:"#DC2626",fontSize:10}}>X</button>
+                </div>
+              ))}
+              <button onClick={addRow} style={{background:"#EEF2FF",color:"#4F46E5",border:"none",borderRadius:5,padding:"4px 9px",cursor:"pointer",fontWeight:700,fontSize:9,display:"flex",alignItems:"center",gap:2,marginBottom:9}}><Ic n="plus" sz={9}/>Add Row</button>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:9,fontWeight:700,color:"#374151",display:"block",marginBottom:2}}>Notes</label>
+                <textarea value={parsed.notes||""} onChange={e=>setF("notes",e.target.value)} rows={2} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:5,padding:"5px 7px",fontSize:10,outline:"none",resize:"vertical",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"flex",gap:7}}>
+                <button onClick={()=>setStep("paste")} style={{flex:1,background:"#F3F4F6",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:11}}>Back</button>
+                <button onClick={submit} style={{flex:2,background:"linear-gradient(135deg,#6366F1,#A855F7)",color:"#fff",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:800,fontSize:11}}>Create Project</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== WHATSAPP MODAL ==========
+function WAModal({data,drafters,onClose,onToast}) {
+  const {project:p,scenario}=data;
+  const assigned=(p.assignedTo||[]).map(id=>drafters.find(d=>d.id===id)).filter(Boolean);
+  const [msg,setMsg]=useState(mkWA(p,drafters,scenario));
+  const [selD,setSD]=useState(assigned[0]?.id||"d1");
+  const dr=drafters.find(d=>d.id===selD);
+  const waUrl="https://wa.me/"+((dr?.wa||"").replace(/\D/g,""))+"?text="+encodeURIComponent(msg);
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:14}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:"#fff",borderRadius:14,padding:20,width:"100%",maxWidth:420,maxHeight:"88vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.35)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:13}}>WhatsApp SOP</div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer"}}><Ic n="close" sz={14} col="#6B7280"/></button>
+        </div>
+        <div style={{display:"flex",gap:5,marginBottom:10}}>
+          {assigned.map(d=><button key={d.id} onClick={()=>setSD(d.id)} style={{flex:1,background:selD===d.id?"#25D366":"#F3F4F6",color:selD===d.id?"#fff":"#374151",border:"none",borderRadius:6,padding:"6px 0",cursor:"pointer",fontWeight:700,fontSize:10}}>{d.name}<div style={{fontSize:8,marginTop:1,opacity:.8}}>{d.wa}</div></button>)}
+        </div>
+        <div style={{display:"flex",gap:4,marginBottom:9}}>
+          {[["assign","Assign"],["status","Status"],["urgent","Urgent"]].map(([s,l])=><button key={s} onClick={()=>setMsg(mkWA(p,drafters,s))} style={{flex:1,background:"#F3F4F6",color:"#374151",border:"none",borderRadius:5,padding:"4px 0",cursor:"pointer",fontWeight:700,fontSize:9}}>{l}</button>)}
+        </div>
+        <textarea value={msg} onChange={e=>setMsg(e.target.value)} rows={11} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:7,padding:"7px 9px",fontSize:10,outline:"none",resize:"vertical",fontFamily:"inherit",lineHeight:1.6,boxSizing:"border-box",marginBottom:9}}/>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{navigator.clipboard?.writeText(msg);onToast("Copied!");}} style={{flex:1,background:"#F3F4F6",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:11}}>Copy</button>
+          <a href={waUrl} target="_blank" rel="noreferrer" style={{flex:2,background:"#25D366",color:"#fff",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:800,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:5,textDecoration:"none"}}><Ic n="wa" sz={13} col="#fff"/> Open WhatsApp</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== EMAIL MODAL ==========
+function EmailModal({email:init,onClose,onToast}) {
+  const [e,setE]=useState(init);
+  const set=(k,v)=>setE(p=>({...p,[k]:v}));
+  const gUrl="https://mail.google.com/mail/?view=cm&fs=1&to="+encodeURIComponent(e.to||"")+"&cc="+encodeURIComponent(e.cc||"")+"&su="+encodeURIComponent(e.subject||"")+"&body="+encodeURIComponent(e.body||"");
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:14}} onClick={ev=>ev.target===ev.currentTarget&&onClose()}>
+      <div style={{background:"#fff",borderRadius:14,padding:20,width:"100%",maxWidth:560,maxHeight:"91vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.35)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:13}}>Compose Email</div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer"}}><Ic n="close" sz={14} col="#6B7280"/></button>
+        </div>
+        <div style={{background:"#EEF2FF",borderRadius:6,padding:"5px 9px",marginBottom:8,fontSize:9,color:"#4338CA",fontWeight:600}}>From: {e.from}</div>
+        <div style={{background:"#FFFBEB",borderRadius:6,padding:"5px 9px",marginBottom:8,fontSize:9,color:"#92400E",fontWeight:600}}>Project number in subject keeps emails in same thread</div>
+        {[["To","to"],["CC","cc"],["Subject","subject"]].map(([l,k])=>(
+          <div key={k} style={{marginBottom:7}}>
+            <label style={{fontSize:9,fontWeight:700,color:"#374151",display:"block",marginBottom:2}}>{l}</label>
+            <input value={e[k]||""} onChange={ev=>set(k,ev.target.value)} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none",boxSizing:"border-box"}}/>
+          </div>
+        ))}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:9,fontWeight:700,color:"#374151",display:"block",marginBottom:2}}>Body</label>
+          <textarea value={e.body||""} onChange={ev=>set("body",ev.target.value)} rows={9} style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:6,padding:"6px 8px",fontSize:10,outline:"none",resize:"vertical",fontFamily:"inherit",lineHeight:1.6,boxSizing:"border-box"}}/>
+        </div>
+        <div style={{display:"flex",gap:7}}>
+          <button onClick={()=>{navigator.clipboard?.writeText("From: "+e.from+"\nTo: "+e.to+(e.cc?"\nCC: "+e.cc:"")+"\nSubject: "+e.subject+"\n\n"+e.body);onToast("Copied!");}} style={{flex:1,background:"#F3F4F6",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><Ic n="copy" sz={12}/>Copy</button>
+          <a href={gUrl} target="_blank" rel="noreferrer" style={{flex:2,background:"linear-gradient(135deg,#EA4335,#FBBC05)",color:"#fff",border:"none",borderRadius:7,padding:"9px 0",cursor:"pointer",fontWeight:800,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:5,textDecoration:"none"}}><Ic n="mail" sz={13}/>Open in Gmail</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== PROGRESS MODAL ==========
+function ProgModal({project:p,onClose,onUpdate,onNotif}) {
+  const [val,setVal]=useState(p.progressPct||0);
+  const [note,setNote]=useState("");
+  const col=val<40?"#EF4444":val<80?"#F59E0B":"#10B981";
+  const save=()=>{ onUpdate({...p,progressPct:val,status:val===100?"review":val>0?"in_progress":"pending"}); onNotif(p.id+" - "+p.name+": "+val+"%"+(note?" - "+note:"")); onClose(); };
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:14}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:"#fff",borderRadius:14,padding:20,width:"100%",maxWidth:360,boxShadow:"0 20px 60px rgba(0,0,0,.35)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:13}}>Update Progress</div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer"}}><Ic n="close" sz={14} col="#6B7280"/></button>
+        </div>
+        <div style={{fontSize:11,color:"#374151",marginBottom:12,fontWeight:600}}>{p.id} - {p.name}</div>
+        <div style={{textAlign:"center",marginBottom:12}}>
+          <div style={{fontSize:44,fontWeight:900,color:col,lineHeight:1}}>{val}%</div>
+          <div style={{fontSize:10,color:"#6B7280",marginTop:2}}>{val===0?"Not started":val===100?"Ready for review":val<50?"In progress":"More than halfway!"}</div>
+        </div>
+        <input type="range" min={0} max={100} step={5} value={val} onChange={e=>setVal(Number(e.target.value))} style={{width:"100%",marginBottom:7,accentColor:col}}/>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+          {[0,25,50,75,100].map(v=><button key={v} onClick={()=>setVal(v)} style={{background:val===v?col:"#F3F4F6",color:val===v?"#fff":"#6B7280",border:"none",borderRadius:5,padding:"3px 8px",cursor:"pointer",fontWeight:700,fontSize:9}}>{v}%</button>)}
+        </div>
+        <div style={{height:7,background:"#F3F4F6",borderRadius:99,overflow:"hidden",marginBottom:11}}>
+          <div style={{height:"100%",width:val+"%",background:col,borderRadius:99,transition:"width .3s"}}/>
+        </div>
+        <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (e.g. S-101 done, working on S-103)" style={{width:"100%",border:"1px solid #E5E7EB",borderRadius:6,padding:"6px 8px",fontSize:10,outline:"none",boxSizing:"border-box",marginBottom:11}}/>
+        <button onClick={save} style={{width:"100%",background:col,color:"#fff",border:"none",borderRadius:8,padding:"10px 0",cursor:"pointer",fontWeight:800,fontSize:12}}>Save Progress</button>
+      </div>
+    </div>
+  );
+}
+
+const container = document.getElementById('root');
+const root = ReactDOM.createRoot(container);
+root.render(React.createElement(App));
+document.getElementById('loading').style.display = 'none';
+document.getElementById('root').style.display = 'block';
+  </script>
+</body>
+</html>
